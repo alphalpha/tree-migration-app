@@ -21,6 +21,7 @@ eframe = { version = "0.23.0", default-features = false, features = [
 ] }
 env_logger = "0.10.1"
 log = "0.4.20"
+rfd = "0.12.1"
 rusttype = "0.9.3"
 serde_derive = "1.0.192"
 serde = { version = "1.0.192", features = ["derive"] }

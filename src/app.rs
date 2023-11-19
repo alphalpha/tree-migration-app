@@ -12,7 +12,9 @@ pub enum Signal {
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MigrationApp {
-    pub video_config: images_to_video::Config,
+    pub video_codec: images_to_video::Codec,
+    pub ffmpeg_path: Option<PathBuf>,
+    pub frame_rate: u32,
     #[serde(skip)]
     pub is_processing: bool,
     #[serde(skip)]
@@ -30,7 +32,9 @@ pub struct MigrationApp {
 impl Default for MigrationApp {
     fn default() -> Self {
         Self {
-            video_config: images_to_video::Config::default(),
+            video_codec: images_to_video::Codec::None,
+            ffmpeg_path: None,
+            frame_rate: 4,
             is_processing: false,
             channel: mpsc::channel::<Signal>(),
             dropped_files: HashMap::new(),
@@ -41,9 +45,80 @@ impl Default for MigrationApp {
 impl MigrationApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            let mut app: MigrationApp =
+                eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            if let Some(path) = &app.ffmpeg_path {
+                if !path.exists() {
+                    app.ffmpeg_path = None;
+                }
+            }
+            return app;
         }
+
         Default::default()
+    }
+
+    pub fn build_settings_view(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Select ffmpeg binary").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        if let Ok(ffmpeg_path) =
+                            images_to_video::utils::ffmpeg_path(path.display().to_string().as_str())
+                        {
+                            self.ffmpeg_path = Some(ffmpeg_path);
+                        } else {
+                            self.ffmpeg_path = None;
+                        }
+                    }
+                }
+
+                if let Some(path) = &self.ffmpeg_path {
+                    ui.monospace(path.display().to_string());
+                } else {
+                    ui.label(egui::RichText::new("Not Set").color(egui::Color32::RED));
+                }
+            });
+
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Video Codec")
+                    .selected_text(match self.video_codec {
+                        images_to_video::Codec::H264 => "h.264",
+                        images_to_video::Codec::ProRes => "Prores",
+                        images_to_video::Codec::None => "None",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.video_codec,
+                            images_to_video::Codec::H264,
+                            "h.264",
+                        );
+                        ui.selectable_value(
+                            &mut self.video_codec,
+                            images_to_video::Codec::ProRes,
+                            "Prores",
+                        );
+                        ui.selectable_value(
+                            &mut self.video_codec,
+                            images_to_video::Codec::None,
+                            "None",
+                        );
+                    });
+            });
+
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                ui.add(egui::Slider::new(&mut self.frame_rate, 1..=25));
+                ui.label("Frame Rate".to_owned());
+            });
+
+            ui.add_space(10.0);
+        });
     }
 
     pub fn drag_and_drop(&mut self, ctx: &egui::Context) {
@@ -199,11 +274,7 @@ impl eframe::App for MigrationApp {
             self.is_processing = false;
         }
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.add_space(10.0);
-            ui.heading("Drag Configuration Files onto Window");
-            ui.add_space(10.0);
-        });
+        self.build_settings_view(ctx);
 
         self.drag_and_drop(ctx);
 
