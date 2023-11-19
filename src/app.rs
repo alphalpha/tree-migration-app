@@ -1,3 +1,4 @@
+use images_to_video;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -10,6 +11,7 @@ pub enum Signal {
 
 pub struct MigrationApp {
     // #[serde(skip)] // This how you opt-out of serialization of a field
+    pub video_config: images_to_video::Config,
     pub is_processing: bool,
     pub channel: (mpsc::Sender<Signal>, mpsc::Receiver<Signal>),
     pub dropped_files: HashMap<
@@ -24,6 +26,7 @@ pub struct MigrationApp {
 impl Default for MigrationApp {
     fn default() -> Self {
         Self {
+            video_config: images_to_video::Config::default(),
             is_processing: false,
             channel: mpsc::channel::<Signal>(),
             dropped_files: HashMap::new(),

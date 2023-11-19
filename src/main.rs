@@ -1,3 +1,4 @@
+extern crate images_to_video;
 extern crate tree_migration;
 
 mod app;

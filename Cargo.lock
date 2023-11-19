@@ -1597,6 +1597,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "images-to-video"
+version = "0.1.0"
+source = "git+https://github.com/alphalpha/images-to-video.git#3168dd86eb4315d63a8076b03ffbcbc3f45e075c"
+dependencies = [
+ "async-std",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2955,6 +2963,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "env_logger",
+ "images-to-video",
  "log",
  "rusttype",
  "serde",
