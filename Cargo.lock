@@ -1602,6 +1602,8 @@ version = "0.1.0"
 source = "git+https://github.com/alphalpha/images-to-video.git#3168dd86eb4315d63a8076b03ffbcbc3f45e075c"
 dependencies = [
  "async-std",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]

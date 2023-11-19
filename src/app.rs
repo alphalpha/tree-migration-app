@@ -9,11 +9,15 @@ pub enum Signal {
     Error((PathBuf, tree_migration::Error)),
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 pub struct MigrationApp {
-    // #[serde(skip)] // This how you opt-out of serialization of a field
     pub video_config: images_to_video::Config,
+    #[serde(skip)]
     pub is_processing: bool,
+    #[serde(skip)]
     pub channel: (mpsc::Sender<Signal>, mpsc::Receiver<Signal>),
+    #[serde(skip)]
     pub dropped_files: HashMap<
         PathBuf,
         (
@@ -35,7 +39,10 @@ impl Default for MigrationApp {
 }
 
 impl MigrationApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        if let Some(storage) = cc.storage {
+            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+        }
         Default::default()
     }
 
@@ -175,6 +182,10 @@ impl MigrationApp {
 }
 
 impl eframe::App for MigrationApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, self);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
 
