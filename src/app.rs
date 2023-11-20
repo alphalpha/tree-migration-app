@@ -12,6 +12,7 @@ pub enum Signal {
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MigrationApp {
+    pub is_video_enabled: bool,
     pub video_codec: images_to_video::Codec,
     pub ffmpeg_path: Option<PathBuf>,
     pub frame_rate: u32,
@@ -32,6 +33,7 @@ pub struct MigrationApp {
 impl Default for MigrationApp {
     fn default() -> Self {
         Self {
+            is_video_enabled: false,
             video_codec: images_to_video::Codec::None,
             ffmpeg_path: None,
             frame_rate: 4,
@@ -62,60 +64,62 @@ impl MigrationApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
-                if ui.button("Select ffmpeg binary").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        if let Ok(ffmpeg_path) =
-                            images_to_video::utils::ffmpeg_path(path.display().to_string().as_str())
-                        {
-                            self.ffmpeg_path = Some(ffmpeg_path);
-                        } else {
-                            self.ffmpeg_path = None;
+            ui.checkbox(&mut self.is_video_enabled, "Video processing")
+                .on_hover_text("Check to enable video processing");
+
+            ui.add_space(10.0);
+
+            if self.is_video_enabled {
+                ui.horizontal(|ui| {
+                    if ui.button("Select ffmpeg binary").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            if let Ok(ffmpeg_path) = images_to_video::utils::ffmpeg_path(
+                                path.display().to_string().as_str(),
+                            ) {
+                                self.ffmpeg_path = Some(ffmpeg_path);
+                            } else {
+                                self.ffmpeg_path = None;
+                            }
                         }
                     }
-                }
 
-                if let Some(path) = &self.ffmpeg_path {
-                    ui.monospace(path.display().to_string());
-                } else {
-                    ui.label(egui::RichText::new("Not Set").color(egui::Color32::RED));
-                }
-            });
+                    if let Some(path) = &self.ffmpeg_path {
+                        ui.monospace(path.display().to_string());
+                    } else {
+                        ui.label(egui::RichText::new("Not Set").color(egui::Color32::RED));
+                    }
+                });
 
-            ui.add_space(10.0);
+                ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_label("Video Codec")
-                    .selected_text(match self.video_codec {
-                        images_to_video::Codec::H264 => "h.264",
-                        images_to_video::Codec::ProRes => "Prores",
-                        images_to_video::Codec::None => "None",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.video_codec,
-                            images_to_video::Codec::H264,
-                            "h.264",
-                        );
-                        ui.selectable_value(
-                            &mut self.video_codec,
-                            images_to_video::Codec::ProRes,
-                            "Prores",
-                        );
-                        ui.selectable_value(
-                            &mut self.video_codec,
-                            images_to_video::Codec::None,
-                            "None",
-                        );
-                    });
-            });
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_label("Video Codec")
+                        .selected_text(match self.video_codec {
+                            images_to_video::Codec::H264 => "h.264",
+                            images_to_video::Codec::ProRes => "Prores",
+                            images_to_video::Codec::None => "None",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.video_codec,
+                                images_to_video::Codec::H264,
+                                "h.264",
+                            );
+                            ui.selectable_value(
+                                &mut self.video_codec,
+                                images_to_video::Codec::ProRes,
+                                "Prores",
+                            );
+                        });
+                });
 
-            ui.add_space(10.0);
+                ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut self.frame_rate, 1..=25));
-                ui.label("Frame Rate".to_owned());
-            });
+                ui.horizontal(|ui| {
+                    ui.add(egui::Slider::new(&mut self.frame_rate, 1..=25));
+                    ui.label("Frame Rate".to_owned());
+                });
+            }
 
             ui.add_space(10.0);
         });
