@@ -4,11 +4,62 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use tree_migration;
 
+fn build_video_config(
+    image_config: &tree_migration::Config,
+    ffmpeg_path: &PathBuf,
+    codec: images_to_video::Codec,
+    frame_rate: u32,
+) -> Result<images_to_video::Config, images_to_video::utils::Error> {
+    images_to_video::build_config(
+        ffmpeg_path.display().to_string().as_str(),
+        image_config.input_path.display().to_string().as_str(),
+        frame_rate,
+        codec,
+    )
+}
 pub enum Signal {
     Success(PathBuf),
     Error((PathBuf, tree_migration::Error)),
 }
 
+#[derive(PartialEq)]
+pub enum AppState {
+    Init,
+    InvalidConfigs,
+    ValidConfigs,
+    Processing,
+    ProcessingDone,
+    ProcessingErrors,
+}
+
+#[derive(PartialEq)]
+pub enum ItemState {
+    InvalidConfig,
+    ValidConfig,
+    Processing,
+    ProcessingDone,
+    ProcessingError,
+    Unkown,
+}
+
+fn item_state(
+    app_state: &AppState,
+    config: &Result<tree_migration::Config, tree_migration::Error>,
+    done: &Option<Result<(), tree_migration::Error>>,
+) -> ItemState {
+    if done.as_ref().is_some_and(|d| d.is_ok()) {
+        return ItemState::ProcessingDone;
+    } else if done.as_ref().is_some_and(|d| d.is_err()) {
+        return ItemState::ProcessingError;
+    } else if config.is_ok() && done.is_none() && app_state == &AppState::Processing {
+        return ItemState::Processing;
+    } else if config.is_ok() {
+        return ItemState::ValidConfig;
+    } else if config.is_err() {
+        return ItemState::InvalidConfig;
+    }
+    ItemState::Unkown
+}
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MigrationApp {
@@ -17,7 +68,7 @@ pub struct MigrationApp {
     pub ffmpeg_path: Option<PathBuf>,
     pub frame_rate: u32,
     #[serde(skip)]
-    pub is_processing: bool,
+    pub state: AppState,
     #[serde(skip)]
     pub channel: (mpsc::Sender<Signal>, mpsc::Receiver<Signal>),
     #[serde(skip)]
@@ -37,7 +88,7 @@ impl Default for MigrationApp {
             video_codec: images_to_video::Codec::None,
             ffmpeg_path: None,
             frame_rate: 4,
-            is_processing: false,
+            state: AppState::Init,
             channel: mpsc::channel::<Signal>(),
             dropped_files: HashMap::new(),
         }
@@ -70,62 +121,71 @@ impl MigrationApp {
             ui.add_space(10.0);
 
             if self.is_video_enabled {
-                ui.horizontal(|ui| {
-                    if ui.button("Select ffmpeg binary").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_file() {
-                            if let Ok(ffmpeg_path) = images_to_video::utils::ffmpeg_path(
-                                path.display().to_string().as_str(),
-                            ) {
-                                self.ffmpeg_path = Some(ffmpeg_path);
-                            } else {
-                                self.ffmpeg_path = None;
+                if self.state == AppState::Processing {
+                    ui.label(
+                        "Settings cannot be changed while files are being processed".to_owned(),
+                    );
+                } else {
+                    ui.horizontal(|ui| {
+                        if ui.button("Select ffmpeg binary").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                self.ffmpeg_path = images_to_video::utils::ffmpeg_path(
+                                    path.display().to_string().as_str(),
+                                )
+                                .ok();
                             }
                         }
-                    }
 
-                    if let Some(path) = &self.ffmpeg_path {
-                        ui.monospace(path.display().to_string());
-                    } else {
-                        ui.label(egui::RichText::new("Not Set").color(egui::Color32::RED));
-                    }
-                });
+                        if let Some(path) = &self.ffmpeg_path {
+                            ui.monospace(path.display().to_string());
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.label("Not set. You can download ffmpeg".to_owned());
+                                ui.hyperlink_to(
+                                    "here".to_owned(),
+                                    "https://ffmpeg.org/download.html",
+                                );
+                            });
+                        }
+                    });
 
-                ui.add_space(10.0);
+                    ui.add_space(10.0);
 
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_label("Video Codec")
-                        .selected_text(match self.video_codec {
-                            images_to_video::Codec::H264 => "h.264",
-                            images_to_video::Codec::ProRes => "Prores",
-                            images_to_video::Codec::None => "None",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.video_codec,
-                                images_to_video::Codec::H264,
-                                "h.264",
-                            );
-                            ui.selectable_value(
-                                &mut self.video_codec,
-                                images_to_video::Codec::ProRes,
-                                "Prores",
-                            );
-                        });
-                });
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_label("Video Codec")
+                            .selected_text(match self.video_codec {
+                                images_to_video::Codec::H264 => "h.264",
+                                images_to_video::Codec::ProRes => "Prores",
+                                images_to_video::Codec::None => "None",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.video_codec,
+                                    images_to_video::Codec::H264,
+                                    "h.264",
+                                );
+                                ui.selectable_value(
+                                    &mut self.video_codec,
+                                    images_to_video::Codec::ProRes,
+                                    "Prores",
+                                );
+                            });
+                    });
 
-                ui.add_space(10.0);
+                    ui.add_space(10.0);
 
-                ui.horizontal(|ui| {
-                    ui.add(egui::Slider::new(&mut self.frame_rate, 1..=25));
-                    ui.label("Frame Rate".to_owned());
-                });
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Slider::new(&mut self.frame_rate, 1..=25));
+                        ui.label("Frame Rate".to_owned());
+                    });
+                }
             }
 
             ui.add_space(10.0);
         });
     }
 
-    pub fn drag_and_drop(&mut self, ctx: &egui::Context) {
+    pub fn build_drag_and_drop_view(&mut self, ctx: &egui::Context) {
         use egui::*;
         CentralPanel::default().show(ctx, |ui| {
             // Collect dropped files:
@@ -151,6 +211,49 @@ impl MigrationApp {
         });
     }
 
+    pub fn build_processing_view(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.with_layout(
+                    egui::Layout::left_to_right(egui::Align::TOP),
+                    |ui| match self.state {
+                        AppState::Processing => {
+                            ui.spinner();
+                        }
+                        AppState::Init => {
+                            ui.label("Nothing to process: No Config Files");
+                        }
+                        AppState::InvalidConfigs => {
+                            ui.label("Cannot process: No or invalid Config Files");
+                        }
+                        AppState::ValidConfigs | AppState::ProcessingDone => {
+                            if ui
+                                .button(egui::RichText::new("Process").heading())
+                                .clicked()
+                            {
+                                self.state = AppState::Processing;
+                                self.process();
+                            }
+                        }
+                        AppState::ProcessingErrors => {
+                            ui.label(
+                                egui::RichText::new("Processing error.".to_owned())
+                                    .color(egui::Color32::RED),
+                            );
+                        }
+                    },
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui.button(egui::RichText::new("Clear").heading()).clicked() {
+                        self.dropped_files.clear();
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        });
+    }
+
     pub fn poll(&mut self) {
         while let Ok(signal) = self.channel.1.try_recv() {
             match signal {
@@ -173,18 +276,38 @@ impl MigrationApp {
     }
 
     pub fn process(&self) {
-        let mut configs: Vec<(PathBuf, tree_migration::Config)> = Vec::new();
+        let mut configs: Vec<(
+            PathBuf,
+            tree_migration::Config,
+            Option<images_to_video::Config>,
+        )> = Vec::new();
         for (path, (config, _)) in &self.dropped_files {
-            if let Ok(c) = config {
-                configs.push((path.clone(), c.clone()));
+            if let Ok(image_config) = config {
+                let mut video_config = None;
+                if self.is_video_enabled
+                    && self.video_codec != images_to_video::Codec::None
+                    && self.ffmpeg_path.is_some()
+                {
+                    video_config = build_video_config(
+                        &image_config,
+                        &self.ffmpeg_path.as_ref().unwrap(),
+                        self.video_codec.clone(),
+                        self.frame_rate,
+                    )
+                    .ok();
+                }
+                configs.push((path.clone(), image_config.clone(), video_config));
             }
         }
 
-        for (path, config) in configs {
+        for (path, image_config, video_config_opt) in configs {
             let sender = self.channel.0.clone();
             async_std::task::spawn(async move {
-                match tree_migration::run(config.clone()).await {
+                match tree_migration::run(image_config).await {
                     Ok(_) => {
+                        if let Some(video_config) = video_config_opt {
+                            let _ = images_to_video::run(video_config).await;
+                        }
                         let _ = sender.send(Signal::Success(path));
                     }
                     Err(e) => {
@@ -195,7 +318,48 @@ impl MigrationApp {
         }
     }
 
-    fn table_ui(&mut self, ui: &mut egui::Ui) {
+    fn update_state(&mut self) {
+        if self.dropped_files.is_empty() {
+            self.state = AppState::Init;
+        } else {
+            if self.state == AppState::Processing {
+                if self
+                    .dropped_files
+                    .iter()
+                    .find(|(_, (config, done))| {
+                        item_state(&self.state, &config, &done) == ItemState::Processing
+                    })
+                    .is_none()
+                {
+                    self.state = AppState::ProcessingDone;
+                } else if self
+                    .dropped_files
+                    .iter()
+                    .find(|(_, (config, done))| {
+                        item_state(&self.state, &config, &done) == ItemState::ProcessingError
+                    })
+                    .is_some()
+                {
+                    self.state = AppState::ProcessingErrors;
+                }
+            } else {
+                if self
+                    .dropped_files
+                    .iter()
+                    .find(|(_, (config, done))| {
+                        item_state(&self.state, &config, &done) == ItemState::InvalidConfig
+                    })
+                    .is_none()
+                {
+                    self.state = AppState::ValidConfigs;
+                } else {
+                    self.state = AppState::InvalidConfigs;
+                }
+            }
+        }
+    }
+
+    fn table_ui(&self, ui: &mut egui::Ui) {
         use egui::*;
         use egui_extras::{Column, TableBuilder};
 
@@ -219,23 +383,24 @@ impl MigrationApp {
             .body(|mut body| {
                 for (path, (config, done)) in &self.dropped_files {
                     let row_height = 18.0;
-                    let status = if done.as_ref().is_some_and(|d| d.is_ok()) {
-                        String::from("Done")
-                    } else if done.as_ref().is_some_and(|d| d.is_err()) {
-                        String::from("Error")
-                    } else if config.is_ok() {
-                        String::from("Valid Config")
-                    } else if config.is_err() {
-                        String::from("Invalid Config")
-                    } else {
-                        String::from("Unkown")
+                    let item_state = item_state(&self.state, &config, &done);
+                    let status = match item_state {
+                        ItemState::ProcessingDone => String::from("Done"),
+                        ItemState::ProcessingError => String::from("Error"),
+                        ItemState::ValidConfig => String::from("Valid Config"),
+                        ItemState::InvalidConfig => String::from("Invalid Config"),
+                        _ => String::from("Unkown"),
                     };
                     body.row(row_height, |mut row| {
                         row.col(|ui| {
                             ui.style_mut().wrap = Some(false);
                             ui.vertical(|ui| {
-                                ui.label(status);
-                                if done.as_ref().is_some_and(|d| d.is_err()) {
+                                if item_state == ItemState::Processing {
+                                    ui.spinner();
+                                } else {
+                                    ui.label(status.clone());
+                                }
+                                if item_state == ItemState::ProcessingError {
                                     ui.label("");
                                 }
                             });
@@ -244,7 +409,12 @@ impl MigrationApp {
                             ui.style_mut().wrap = Some(false);
                             ui.vertical(|ui| {
                                 ui.label(path.to_string_lossy());
-                                if done.as_ref().is_some_and(|d| d.is_err()) {
+                                if item_state == ItemState::InvalidConfig {
+                                    ui.label(
+                                        RichText::new(format!("{}", status)).color(Color32::RED),
+                                    );
+                                }
+                                if item_state == ItemState::ProcessingError {
                                     if let Err(message) = done.as_ref().unwrap() {
                                         ui.label(
                                             RichText::new(format!("{}", message))
@@ -268,43 +438,12 @@ impl eframe::App for MigrationApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
 
-        let mut is_processing = false;
-        for (_, (config, done)) in &self.dropped_files {
-            if config.is_ok() && done.is_none() {
-                is_processing = true;
-            }
-        }
-        if !is_processing {
-            self.is_processing = false;
-        }
+        self.update_state();
 
         self.build_settings_view(ctx);
 
-        self.drag_and_drop(ctx);
+        self.build_drag_and_drop_view(ctx);
 
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.add_space(10.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                    if self.is_processing {
-                        ui.spinner();
-                    } else {
-                        if ui
-                            .button(egui::RichText::new("Process").heading())
-                            .clicked()
-                        {
-                            self.is_processing = true;
-                            self.process();
-                        }
-                    }
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    if ui.button(egui::RichText::new("Clear").heading()).clicked() {
-                        self.dropped_files.clear();
-                    }
-                });
-            });
-            ui.add_space(10.0);
-        });
+        self.build_processing_view(ctx);
     }
 }

@@ -1719,7 +1719,7 @@ dependencies = [
 [[package]]
 name = "images-to-video"
 version = "0.1.0"
-source = "git+https://github.com/alphalpha/images-to-video.git#fb83faf27f969e19c08814a748f7e224a8bb8e4a"
+source = "git+https://github.com/alphalpha/images-to-video.git#fdbc9f80307165a490ff7ac17f6c4161bf304f29"
 dependencies = [
  "async-std",
  "serde",
