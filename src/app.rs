@@ -12,7 +12,7 @@ fn build_video_config(
 ) -> Result<images_to_video::Config, images_to_video::utils::Error> {
     images_to_video::build_config(
         ffmpeg_path.display().to_string().as_str(),
-        image_config.input_path.display().to_string().as_str(),
+        image_config.output_path.display().to_string().as_str(),
         frame_rate,
         codec,
     )
@@ -276,37 +276,44 @@ impl MigrationApp {
     }
 
     pub fn process(&self) {
-        let mut configs: Vec<(
-            PathBuf,
-            tree_migration::Config,
-            Option<images_to_video::Config>,
-        )> = Vec::new();
+        let mut configs: Vec<(PathBuf, tree_migration::Config)> = Vec::new();
         for (path, (config, _)) in &self.dropped_files {
             if let Ok(image_config) = config {
-                let mut video_config = None;
-                if self.is_video_enabled
-                    && self.video_codec != images_to_video::Codec::None
-                    && self.ffmpeg_path.is_some()
-                {
-                    video_config = build_video_config(
-                        &image_config,
-                        &self.ffmpeg_path.as_ref().unwrap(),
-                        self.video_codec.clone(),
-                        self.frame_rate,
-                    )
-                    .ok();
-                }
-                configs.push((path.clone(), image_config.clone(), video_config));
+                configs.push((path.clone(), image_config.clone()));
             }
         }
 
-        for (path, image_config, video_config_opt) in configs {
+        for (path, image_config) in configs {
             let sender = self.channel.0.clone();
+            let is_video_enabled = self.is_video_enabled;
+            let video_codec = self.video_codec.clone();
+            let ffmpeg_path = self.ffmpeg_path.clone();
+            let frame_rate = self.frame_rate;
             async_std::task::spawn(async move {
-                match tree_migration::run(image_config).await {
+                match tree_migration::run(image_config.clone()).await {
                     Ok(_) => {
-                        if let Some(video_config) = video_config_opt {
-                            let _ = images_to_video::run(video_config).await;
+                        if is_video_enabled
+                            && video_codec != images_to_video::Codec::None
+                            && ffmpeg_path.is_some()
+                        {
+                            let video_config_opt = match build_video_config(
+                                &image_config,
+                                &ffmpeg_path.as_ref().unwrap(),
+                                video_codec.clone(),
+                                frame_rate,
+                            ) {
+                                Err(e) => {
+                                    println!("Error Config {}", e);
+                                    None
+                                }
+                                Ok(config) => Some(config),
+                            };
+
+                            if let Some(video_config) = video_config_opt {
+                                if let Err(e) = images_to_video::run(video_config).await {
+                                    println!("Eorrro {}", e);
+                                }
+                            }
                         }
                         let _ = sender.send(Signal::Success(path));
                     }
