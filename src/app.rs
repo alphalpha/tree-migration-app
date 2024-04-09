@@ -10,9 +10,19 @@ fn build_video_config(
     codec: images_to_video::Codec,
     frame_rate: u32,
 ) -> Result<images_to_video::Config, images_to_video::utils::Error> {
+    let output_file_name = image_config.location.clone()
+        + "-"
+        + image_config.camera.as_str()
+        + "-"
+        + image_config.start_date.to_string().as_str()
+        + "-"
+        + image_config.end_date.to_string().as_str()
+        + ".mov";
+
     images_to_video::build_config(
         ffmpeg_path.display().to_string().as_str(),
         image_config.output_path.display().to_string().as_str(),
+        output_file_name.as_str(),
         frame_rate,
         codec,
     )
