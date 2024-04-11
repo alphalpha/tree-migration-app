@@ -73,6 +73,7 @@ fn item_state(
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct MigrationApp {
+    pub is_forest_green_enabled: bool,
     pub is_video_enabled: bool,
     pub video_codec: images_to_video::Codec,
     pub ffmpeg_path: Option<PathBuf>,
@@ -94,6 +95,7 @@ pub struct MigrationApp {
 impl Default for MigrationApp {
     fn default() -> Self {
         Self {
+            is_forest_green_enabled: false,
             is_video_enabled: false,
             video_codec: images_to_video::Codec::None,
             ffmpeg_path: None,
@@ -123,6 +125,11 @@ impl MigrationApp {
 
     pub fn build_settings_view(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.add_space(10.0);
+
+            ui.checkbox(&mut self.is_forest_green_enabled, "Forest Green")
+                .on_hover_text("Check to enable forest green");
+
             ui.add_space(10.0);
 
             ui.checkbox(&mut self.is_video_enabled, "Video processing")
@@ -295,12 +302,13 @@ impl MigrationApp {
 
         for (path, image_config) in configs {
             let sender = self.channel.0.clone();
+            let is_forest_green_enabled = self.is_forest_green_enabled;
             let is_video_enabled = self.is_video_enabled;
             let video_codec = self.video_codec.clone();
             let ffmpeg_path = self.ffmpeg_path.clone();
             let frame_rate = self.frame_rate;
             async_std::task::spawn(async move {
-                match tree_migration::run(image_config.clone()).await {
+                match tree_migration::run(image_config.clone(), is_forest_green_enabled).await {
                     Ok(_) => {
                         if is_video_enabled
                             && video_codec != images_to_video::Codec::None
