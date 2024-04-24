@@ -9,6 +9,7 @@ fn build_video_config(
     ffmpeg_path: &PathBuf,
     codec: images_to_video::Codec,
     frame_rate: u32,
+    video_output_path: Option<PathBuf>,
 ) -> Result<images_to_video::Config, images_to_video::utils::Error> {
     let output_file_name = image_config.location.clone()
         + "-"
@@ -22,6 +23,7 @@ fn build_video_config(
     images_to_video::build_config(
         ffmpeg_path.display().to_string().as_str(),
         image_config.output_path.display().to_string().as_str(),
+        video_output_path,
         output_file_name.as_str(),
         frame_rate,
         codec,
@@ -77,6 +79,7 @@ pub struct MigrationApp {
     pub is_video_enabled: bool,
     pub video_codec: images_to_video::Codec,
     pub ffmpeg_path: Option<PathBuf>,
+    pub video_output_path: Option<PathBuf>,
     pub frame_rate: u32,
     #[serde(skip)]
     pub state: AppState,
@@ -99,6 +102,7 @@ impl Default for MigrationApp {
             is_video_enabled: false,
             video_codec: images_to_video::Codec::None,
             ffmpeg_path: None,
+            video_output_path: None,
             frame_rate: 4,
             state: AppState::Init,
             channel: mpsc::channel::<Signal>(),
@@ -143,6 +147,22 @@ impl MigrationApp {
                         "Settings cannot be changed while files are being processed".to_owned(),
                     );
                 } else {
+                    ui.horizontal(|ui| {
+                        if ui.button("Select output folder").clicked() {
+                            self.video_output_path = rfd::FileDialog::new().pick_folder();
+                        }
+
+                        if let Some(path) = &self.video_output_path {
+                            ui.monospace(path.display().to_string());
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.label("Video ouput path not set.".to_owned());
+                            });
+                        }
+                    });
+
+                    ui.add_space(10.0);
+
                     ui.horizontal(|ui| {
                         if ui.button("Select ffmpeg binary").clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -306,6 +326,7 @@ impl MigrationApp {
             let is_video_enabled = self.is_video_enabled;
             let video_codec = self.video_codec.clone();
             let ffmpeg_path = self.ffmpeg_path.clone();
+            let video_output_path = self.video_output_path.clone();
             let frame_rate = self.frame_rate;
             async_std::task::spawn(async move {
                 match tree_migration::run(image_config.clone(), is_forest_green_enabled).await {
@@ -319,6 +340,7 @@ impl MigrationApp {
                                 &ffmpeg_path.as_ref().unwrap(),
                                 video_codec.clone(),
                                 frame_rate,
+                                video_output_path,
                             ) {
                                 Err(e) => {
                                     println!("Error Config {}", e);
